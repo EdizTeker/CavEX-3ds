@@ -28,6 +28,11 @@
 #include <fat.h>
 #endif
 
+#ifdef PLATFORM_3DS
+#include <3ds.h>
+#include <citro3d.h>
+#endif
+
 #include "chunk_mesher.h"
 #include "daytime.h"
 #include "game/game_state.h"
@@ -66,6 +71,15 @@ int main(void) {
 	fatInitDefault();
 #endif
 
+#ifdef PLATFORM_3DS
+    gfxInitDefault();
+    C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+    
+    // Allocate the Top Screen rendering target
+    C3D_RenderTarget* top_target = C3D_RenderTargetCreate(240, 400, C3D_RENDER_COLOR_DEPTH, GX_VIEW_PORT_OES);
+    C3D_RenderTargetSetOutput(top_target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
+#endif
+
 	config_create(&gstate.config_user, "config.json");
 
 	input_init();
@@ -96,7 +110,15 @@ int main(void) {
 	ptime_t last_frame = time_get();
 	ptime_t last_tick = last_frame;
 
-	while(!gstate.quit) {
+	#ifdef PLATFORM_3DS
+	    while(aptMainLoop() && !gstate.quit) {
+	        hidScanInput();
+	        if(hidKeysDown() & KEY_START) break;
+	        
+	        C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+	#else
+	    while(!gstate.quit) {
+	#endif
 		ptime_t this_frame = time_get();
 		gstate.stats.dt = time_diff_s(last_frame, this_frame);
 		gstate.stats.fps = 1.0F / gstate.stats.dt;
@@ -251,7 +273,16 @@ int main(void) {
 
 		input_poll();
 		gfx_finish(true);
-	}
 
-	return 0;
+#ifdef PLATFORM_3DS
+        C3D_FrameEnd(0);
+#endif
+    } // This bracket closes the while loop
+
+#ifdef PLATFORM_3DS
+    C3D_Fini();
+    gfxExit();
+#endif
+
+    return 0;
 }
