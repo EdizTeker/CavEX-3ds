@@ -74,3 +74,29 @@ float time_diff_s(ptime_t f, ptime_t s) {
 }
 
 #endif
+
+#ifdef PLATFORM_3DS
+#include <3ds.h>
+
+static uint64_t initial_time;
+
+void time_reset(void) {
+    initial_time = osGetTime();
+}
+
+ptime_t time_get(void) {
+    return osGetTime() - initial_time;
+}
+
+ptime_t time_add_ms(ptime_t t, unsigned int ms) {
+    return t + ms;
+}
+
+int32_t time_diff_ms(ptime_t f, ptime_t s) {
+    return (int32_t)(s - f);
+}
+
+float time_diff_s(ptime_t f, ptime_t s) {
+    return (float)(s - f) / 1000.0f;
+}
+#endif

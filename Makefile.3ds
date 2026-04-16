@@ -1,0 +1,54 @@
+TARGET          := CavEX_3DS
+BUILD           := build_3ds
+SOURCES         := source
+DATA            := assets
+INCLUDES        := source
+
+PREFIX          := arm-none-eabi-
+CC              := $(PREFIX)gcc
+CXX             := $(PREFIX)g++
+AS              := $(PREFIX)as
+AR              := $(PREFIX)ar
+OBJCOPY         := $(PREFIX)objcopy
+
+ARCH            := -march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
+CFLAGS          := -g -Wall -O2 -mword-relocations -ffunction-sections $(ARCH) -DPLATFORM_3DS
+CXXFLAGS        := $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
+ASFLAGS         := -g $(ARCH)
+LDFLAGS         := -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $@).map
+
+LIBS            := -lcitro3d -lctru -lm -lz
+
+INCLUDE         := -I$(DEVKITPRO)/libctru/include -I$(DEVKITPRO)/portlibs/3ds/include -I$(DEVKITPRO)/portlibs/wii/include
+LIBDIRS         := -L$(DEVKITPRO)/libctru/lib -L$(DEVKITPRO)/portlibs/3ds/lib
+
+CFILES          := $(shell find $(SOURCES) -type f -name '*.c' ! -path '*/platform/wii/*' ! -path '*/platform/pc/*')
+CPPFILES        := $(shell find $(SOURCES) -type f -name '*.cpp' ! -path '*/platform/wii/*' ! -path '*/platform/pc/*')
+
+OFILES          := $(CFILES:%.c=$(BUILD)/%.o) $(CPPFILES:%.cpp=$(BUILD)/%.o)
+
+export INCLUDE  += $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
+                   $(foreach dir,$(LIBDIRS),-I$(dir)/include)
+
+.PHONY: all clean
+
+all: $(TARGET).3dsx
+
+$(TARGET).3dsx: $(TARGET).elf
+
+$(TARGET).elf: $(OFILES)
+	@echo Linking $@
+	@$(CXX) $(LDFLAGS) $(OFILES) $(LIBDIRS) $(LIBS) -o $@
+
+$(BUILD)/%.o: %.c
+	@mkdir -p $(@D)
+	@echo Compiling $<
+	@$(CC) $(CFLAGS) $(INCLUDE) -c $< -o $@
+
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(@D)
+	@echo Compiling $<
+	@$(CXX) $(CXXFLAGS) $(INCLUDE) -c $< -o $@
+
+clean:
+	@rm -rf $(BUILD) $(TARGET).3dsx $(TARGET).elf

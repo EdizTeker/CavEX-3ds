@@ -148,3 +148,98 @@ bool tchannel_send(struct thread_channel* c, void* msg, bool block) {
 }
 
 #endif
+
+#ifdef PLATFORM_3DS
+#include <3ds.h>
+#include <stdlib.h>
+#include <string.h>
+
+struct thread_args_wrapper {
+    void* (*engine_entry)(void*);
+    void* actual_arg;
+};
+
+static void libctru_thread_wrapper(void* wrapper_arg) {
+    struct thread_args_wrapper* wrapper = (struct thread_args_wrapper*)wrapper_arg;
+    
+    wrapper->engine_entry(wrapper->actual_arg);
+    
+    free(wrapper); 
+}
+
+void thread_create(struct thread* t, void* (*entry)(void* arg), void* arg, uint8_t priority) {
+    s32 sys_priority = 0x3F - priority; 
+    if (sys_priority < 0x18) sys_priority = 0x18;
+    if (sys_priority > 0x3F) sys_priority = 0x3F;
+    
+    struct thread_args_wrapper* wrapper = malloc(sizeof(struct thread_args_wrapper));
+    wrapper->engine_entry = entry;
+    wrapper->actual_arg = arg;
+
+    t->native = threadCreate(libctru_thread_wrapper, wrapper, 32 * 1024, sys_priority, -2, false);
+}
+
+void thread_join(struct thread* t) {
+    threadJoin(t->native, U64_MAX);
+    threadFree(t->native);
+}
+
+void thread_msleep(size_t ms) {
+    svcSleepThread((s64)ms * 1000000LL); 
+}
+
+void tchannel_init(struct thread_channel* c, size_t count) {
+    c->count = 0;
+    c->length = count;
+    c->data = malloc(c->length * sizeof(void*));
+    LightLock_Init(&c->lock);
+    LightEvent_Init(&c->signal, RESET_ONESHOT);
+}
+
+void tchannel_close(struct thread_channel* c) {
+    free(c->data);
+}
+
+bool tchannel_receive(struct thread_channel* c, void** msg, bool block) {
+    LightLock_Lock(&c->lock);
+    if(block) {
+        while(!c->count) {
+            LightLock_Unlock(&c->lock);
+            LightEvent_Wait(&c->signal);
+            LightLock_Lock(&c->lock);
+        }
+    } else {
+        if(!c->count) {
+            LightLock_Unlock(&c->lock);
+            return false;
+        }
+    }
+    
+    *msg = c->data[0];
+    c->count--;
+    memmove(c->data, c->data + 1, c->count * sizeof(void*));
+    LightLock_Unlock(&c->lock);
+    return true;
+}
+
+bool tchannel_send(struct thread_channel* c, void* msg, bool block) {
+    LightLock_Lock(&c->lock);
+    if(block) {
+        while(c->count >= c->length) {
+            LightLock_Unlock(&c->lock);
+            svcSleepThread(1000000LL); 
+            LightLock_Lock(&c->lock);
+        }
+    } else {
+        if(c->count >= c->length) {
+            LightLock_Unlock(&c->lock);
+            return false;
+        }
+    }
+    
+    c->data[c->count++] = msg;
+    LightEvent_Signal(&c->signal);
+    LightLock_Unlock(&c->lock);
+    return true;
+}
+#endif

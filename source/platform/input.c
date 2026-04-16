@@ -378,6 +378,66 @@ void input_native_joystick(float dt, float* dx, float* dy) {
 
 #endif
 
+#ifdef PLATFORM_3DS
+
+#include <3ds.h>
+
+static u32 kDown = 0;
+static u32 kHeld = 0;
+static u32 kUp = 0;
+static circlePosition circlePad;
+
+void input_init() {
+}
+
+void input_poll() {
+    hidScanInput();
+    kDown = hidKeysDown();
+    kHeld = hidKeysHeld();
+    kUp = hidKeysUp();
+    hidCircleRead(&circlePad);
+}
+
+void input_native_key_status(int key, bool* pressed, bool* released, bool* held) {
+    *pressed = (kDown & key);
+    *released = (kUp & key);
+    *held = (kHeld & key);
+}
+
+bool input_native_key_symbol(int key, int* symbol, int* symbol_help, enum input_category* category, int* priority) {
+    *category = INPUT_CAT_NONE;
+    *priority = 1;
+    *symbol = 7;
+    *symbol_help = 7;
+    return true;
+}
+
+bool input_native_key_any(int* key) {
+    return false;
+}
+
+void input_pointer_enable(bool enable) { }
+
+bool input_pointer(float* x, float* y, float* angle) {
+    return false; 
+}
+
+void input_native_joystick(float dt, float* dx, float* dy) {
+    if (circlePad.dx > 15 || circlePad.dx < -15) {
+        *dx = ((float)circlePad.dx / 156.0f) * dt;
+    } else {
+        *dx = 0.0f;
+    }
+    
+    if (circlePad.dy > 15 || circlePad.dy < -15) {
+        *dy = ((float)circlePad.dy / -156.0f) * dt;
+    } else {
+        *dy = 0.0f;
+    }
+}
+
+#endif
+
 #include "../game/game_state.h"
 
 static const char* input_config_translate(enum input_button key) {

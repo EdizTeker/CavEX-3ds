@@ -26,6 +26,10 @@
 typedef uint64_t ptime_t;
 #endif
 
+#ifdef PLATFORM_3DS
+typedef uint64_t ptime_t;
+#endif
+
 #ifdef PLATFORM_PC
 #include <time.h>
 typedef struct timespec ptime_t;
