@@ -27,6 +27,17 @@ CPPFILES        := $(shell find $(SOURCES) -type f -name '*.cpp' ! -path '*/plat
 
 OFILES          := $(CFILES:%.c=$(BUILD)/%.o) $(CPPFILES:%.cpp=$(BUILD)/%.o)
 
+PICAFILES       := $(shell find $(SOURCES) -type f -name '*.v.pica')
+SHADERS         := $(PICAFILES:%.v.pica=$(BUILD)/%_shbin.h)
+
+# Force the shaders to compile before the C files
+$(OFILES): $(SHADERS)
+
+$(BUILD)/%_shbin.h: %.v.pica
+	@mkdir -p $(@D)
+	@echo Assembling Shader $<
+	@picasso -o $(BUILD)/$*.shbin -h $@ $<
+
 export INCLUDE  += $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
                    $(foreach dir,$(LIBDIRS),-I$(dir)/include)
 

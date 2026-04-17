@@ -1,0 +1,10 @@
+*.elf
+*.dol
+*.3dsx
+build_3ds/
+build/
+build_pc/
+wii_deploy/
+saves/
+world/
+*.map

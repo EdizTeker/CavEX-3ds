@@ -73,11 +73,13 @@ int main(void) {
 
 #ifdef PLATFORM_3DS
     gfxInitDefault();
-    C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     
-    // Allocate the Top Screen rendering target
-    C3D_RenderTarget* top_target = C3D_RenderTargetCreate(240, 400, C3D_RENDER_COLOR_DEPTH, GX_VIEW_PORT_OES);
-    C3D_RenderTargetSetOutput(top_target, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
+    // 1. Initialize the Bottom Screen as a text console
+    consoleInit(GFX_BOTTOM, NULL);
+    printf("\x1b[1;1HCavEX 3DS Revision 1\n");
+    printf("Initializing Engine...\n");
+    
+    printf("Graphics Target Created: OK\n");
 #endif
 
 	config_create(&gstate.config_user, "config.json");
@@ -111,11 +113,14 @@ int main(void) {
 	ptime_t last_tick = last_frame;
 
 	#ifdef PLATFORM_3DS
+	    extern C3D_RenderTarget* top_target;
+
 	    while(aptMainLoop() && !gstate.quit) {
-	        hidScanInput();
-	        if(hidKeysDown() & KEY_START) break;
-	        
-	        C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+	                hidScanInput();
+	                if(hidKeysDown() & KEY_START) break;
+	                
+	                C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+	                C3D_FrameDrawOn(top_target);
 	#else
 	    while(!gstate.quit) {
 	#endif

@@ -54,6 +54,22 @@ struct thread_channel {
 };
 #endif
 
+#ifdef PLATFORM_3DS
+#include <3ds.h>
+
+struct thread {
+        Thread native;
+};
+
+struct thread_channel {
+        LightLock lock;     
+        LightEvent signal;  
+        void** data;
+        size_t count;
+        size_t length;
+};
+#endif
+
 void thread_create(struct thread* t, void* (*entry)(void* arg), void* arg,
 				   uint8_t priority);
 void thread_join(struct thread* t);

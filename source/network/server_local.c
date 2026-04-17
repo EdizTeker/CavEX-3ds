@@ -491,4 +491,6 @@ void server_local_create(struct server_local* s) {
 
 	struct thread t;
 	thread_create(&t, server_local_thread, s, 8);
+
+    printf("World Loaded: SUCCESS\n");
 }
