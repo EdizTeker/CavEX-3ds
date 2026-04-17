@@ -176,7 +176,7 @@ void thread_create(struct thread* t, void* (*entry)(void* arg), void* arg, uint8
     wrapper->engine_entry = entry;
     wrapper->actual_arg = arg;
 
-    t->native = threadCreate(libctru_thread_wrapper, wrapper, 32 * 1024, sys_priority, -2, false);
+    t->native = threadCreate(libctru_thread_wrapper, wrapper, 128 * 1024, sys_priority, -2, false);
 }
 
 void thread_join(struct thread* t) {

@@ -72,6 +72,7 @@ int main(void) {
 #endif
 
 #ifdef PLATFORM_3DS
+    osSetSpeedupEnable(true);
     gfxInitDefault();
     
     // 1. Initialize the Bottom Screen as a text console

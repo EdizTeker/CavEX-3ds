@@ -206,114 +206,101 @@ bool region_archive_contains(struct region_archive* ra, w_coord_t x,
 }
 
 bool region_archive_get_blocks(struct region_archive* ra, w_coord_t x,
-							   w_coord_t z, struct server_chunk* sc) {
-	assert(ra && sc);
-	bool chunk_exists;
-	assert(region_archive_contains(ra, x, z, &chunk_exists) && chunk_exists);
+                               w_coord_t z, struct server_chunk* sc) {
+    bool chunk_exists;
+    if (!region_archive_contains(ra, x, z, &chunk_exists) || !chunk_exists) return false;
 
-	int rx = x & (REGION_SIZE - 1);
-	int rz = z & (REGION_SIZE - 1);
+    int rx = x & (REGION_SIZE - 1);
+    int rz = z & (REGION_SIZE - 1);
 
-	uint32_t offset = ra->offsets[rx + rz * REGION_SIZE] >> 8;
-	uint32_t sectors = ra->offsets[rx + rz * REGION_SIZE] & 0xFF;
+    uint32_t offset = ra->offsets[rx + rz * REGION_SIZE] >> 8;
+    uint32_t sectors = ra->offsets[rx + rz * REGION_SIZE] & 0xFF;
 
-	// TODO: little endian
+    FILE* f = fopen(string_get_cstr(ra->file_name), "rb");
+    if(!f) { printf("[NBT] fopen failed on region file\n"); return false; }
 
-	FILE* f = fopen(string_get_cstr(ra->file_name), "rb");
+    if(fseek(f, offset * REGION_SECTOR_SIZE, SEEK_SET) != 0) {
+        printf("[NBT] fseek failed\n");
+        fclose(f); return false;
+    }
 
-	if(!f)
-		return false;
+    uint32_t length;
+    if(!fread_u32(&length, f)
+       || length + sizeof(uint32_t) > sectors * REGION_SECTOR_SIZE) {
+        printf("[NBT] length check failed. Len: %lu, Sectors: %lu\n", (unsigned long)length, (unsigned long)sectors);
+        fclose(f); return false;
+    }
 
-	if(fseek(f, offset * REGION_SECTOR_SIZE, SEEK_SET) != 0) {
-		fclose(f);
-		return false;
-	}
+    uint8_t type;
+    if(!fread(&type, sizeof(uint8_t), 1, f) || type > 3) {
+        printf("[NBT] type check failed: %d\n", type);
+        fclose(f); return false;
+    }
 
-	uint32_t length;
-	if(!fread_u32(&length, f)
-	   || length + sizeof(uint32_t) > sectors * REGION_SECTOR_SIZE) {
-		fclose(f);
-		return false;
-	}
+    void* nbt_compressed = malloc(length - 1);
+    if(!nbt_compressed) {
+        printf("[NBT] malloc failed for %lu bytes\n", (unsigned long)(length - 1));
+        fclose(f); return false;
+    }
 
-	uint8_t type;
-	if(!fread(&type, sizeof(uint8_t), 1, f) || type > 3) {
-		fclose(f);
-		return false;
-	}
+    if(!fread(nbt_compressed, length - 1, 1, f)) {
+        printf("[NBT] fread compressed data failed\n");
+        free(nbt_compressed); fclose(f); return false;
+    }
 
-	void* nbt_compressed = malloc(length - 1);
+	printf("[NBT] Handing %lu bytes to ZLIB for decompression...\n", (unsigned long)(length - 1));
+	fflush(stdout);
+	
+    nbt_node* chunk = nbt_parse_compressed(nbt_compressed, length - 1);
+    free(nbt_compressed);
+    fclose(f);
 
-	if(!nbt_compressed) {
-		fclose(f);
-		return false;
-	}
+    if(!chunk) {
+        printf("[NBT] nbt_parse_compressed returned NULL (ZLIB/Data Corrupt)\n");
+        fflush(stdout);
+        return false;
+    }
 
-	if(!fread(nbt_compressed, length - 1, 1, f)) {
-		free(nbt_compressed);
-		fclose(f);
-		return false;
-	}
+    nbt_node* n_x = nbt_find_by_path(chunk, ".Level.xPos");
+    nbt_node* n_z = nbt_find_by_path(chunk, ".Level.zPos");
 
-	nbt_node* chunk = nbt_parse_compressed(nbt_compressed, length - 1);
+    if(!n_x || !n_z || n_x->type != TAG_INT || n_z->type != TAG_INT
+       || n_x->payload.tag_int != x || n_z->payload.tag_int != z) {
+        printf("[NBT] Coordinate mismatch. Expected %ld,%ld\n", (long)x, (long)z);
+        nbt_free(chunk); return false;
+    }
 
-	free(nbt_compressed);
-	fclose(f);
+    nbt_node* n_blocks = nbt_find_by_path(chunk, ".Level.Blocks");
+    nbt_node* n_metadata = nbt_find_by_path(chunk, ".Level.Data");
+    nbt_node* n_skyl = nbt_find_by_path(chunk, ".Level.SkyLight");
+    nbt_node* n_torchl = nbt_find_by_path(chunk, ".Level.BlockLight");
+    nbt_node* n_height = nbt_find_by_path(chunk, ".Level.HeightMap");
 
-	if(!chunk)
-		return false;
+    if(!n_blocks || !n_metadata || !n_skyl || !n_torchl || !n_height) {
+        printf("[NBT] Missing mandatory block arrays in NBT.\n");
+        nbt_free(chunk); return false;
+    }
 
-	nbt_node* n_x = nbt_find_by_path(chunk, ".Level.xPos");
-	nbt_node* n_z = nbt_find_by_path(chunk, ".Level.zPos");
+    if(n_blocks->payload.tag_byte_array.length != CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT) {
+        printf("[NBT] Array length mismatch. Expected %d, got %zu\n", CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT, (size_t)n_blocks->payload.tag_byte_array.length);
+        nbt_free(chunk); return false;
+    }
 
-	if(!n_x || !n_z || n_x->type != TAG_INT || n_z->type != TAG_INT
-	   || n_x->payload.tag_int != x || n_z->payload.tag_int != z) {
-		nbt_free(chunk);
-		return false;
-	}
+    n_blocks->type = TAG_INVALID;
+    n_metadata->type = TAG_INVALID;
+    n_skyl->type = TAG_INVALID;
+    n_torchl->type = TAG_INVALID;
+    n_height->type = TAG_INVALID;
 
-	nbt_node* n_blocks = nbt_find_by_path(chunk, ".Level.Blocks");
-	nbt_node* n_metadata = nbt_find_by_path(chunk, ".Level.Data");
-	nbt_node* n_skyl = nbt_find_by_path(chunk, ".Level.SkyLight");
-	nbt_node* n_torchl = nbt_find_by_path(chunk, ".Level.BlockLight");
-	nbt_node* n_height = nbt_find_by_path(chunk, ".Level.HeightMap");
+    sc->ids = n_blocks->payload.tag_byte_array.data;
+    sc->metadata = n_metadata->payload.tag_byte_array.data;
+    sc->lighting_sky = n_skyl->payload.tag_byte_array.data;
+    sc->lighting_torch = n_torchl->payload.tag_byte_array.data;
+    sc->heightmap = n_height->payload.tag_byte_array.data;
 
-	if(!n_blocks || !n_metadata || !n_skyl || !n_torchl || !n_height
-	   || n_blocks->type != TAG_BYTE_ARRAY || n_metadata->type != TAG_BYTE_ARRAY
-	   || n_skyl->type != TAG_BYTE_ARRAY || n_torchl->type != TAG_BYTE_ARRAY
-	   || n_height->type != TAG_BYTE_ARRAY
-	   || n_blocks->payload.tag_byte_array.length
-		   != CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT
-	   || n_metadata->payload.tag_byte_array.length
-		   != CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT / 2
-	   || n_skyl->payload.tag_byte_array.length
-		   != CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT / 2
-	   || n_torchl->payload.tag_byte_array.length
-		   != CHUNK_SIZE * CHUNK_SIZE * WORLD_HEIGHT / 2
-	   || n_height->payload.tag_byte_array.length != CHUNK_SIZE * CHUNK_SIZE) {
-		nbt_free(chunk);
-		return false;
-	}
-
-	// borrow memory regions from nbt tree
-
-	n_blocks->type = TAG_INVALID;
-	n_metadata->type = TAG_INVALID;
-	n_skyl->type = TAG_INVALID;
-	n_torchl->type = TAG_INVALID;
-	n_height->type = TAG_INVALID;
-
-	sc->ids = n_blocks->payload.tag_byte_array.data;
-	sc->metadata = n_metadata->payload.tag_byte_array.data;
-	sc->lighting_sky = n_skyl->payload.tag_byte_array.data;
-	sc->lighting_torch = n_torchl->payload.tag_byte_array.data;
-	sc->heightmap = n_height->payload.tag_byte_array.data;
-
-	nbt_free(chunk);
-
-	return true;
+    nbt_free(chunk);
+    return true;
 }
-
 static bool file_overwrite_index(FILE* f, size_t index, uint32_t data) {
 	assert(f);
 
